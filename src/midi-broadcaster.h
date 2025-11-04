@@ -19,7 +19,10 @@ enum Ports {
     PORT_ARRAY_SIZE // this is not used as a port index
 };
 
-static const size_t queue_size = 64*sizeof(jack_port_id_t);
+typedef struct PORT_NAME_T {
+  uint16_t len;
+  char name[];
+} port_name_t;
 
 typedef struct MIDI_BROADCASTER_T {
   jack_client_t *client;

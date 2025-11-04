@@ -9,45 +9,50 @@ static const int target_port_flags = JackPortIsTerminal|JackPortIsPhysical|JackP
  * Add a port_id to the waiting queue.
  * It is a producer in the realtime context.
  */
-size_t push_back(jack_ringbuffer_t *queue, jack_port_id_t port_id) {
-  size_t written = 0;
-
+void push_back(jack_ringbuffer_t *queue, const char *port_name) {
   if (queue == NULL) {
     fprintf(stderr, "Could not schedule port connection.\n");
   } else {
 
     // Check if there is space to write
     size_t write_space = jack_ringbuffer_write_space(queue);
-    if (write_space >= sizeof(jack_port_id_t)) {
-      written = jack_ringbuffer_write(queue,
-                                      (const char*)&port_id,
-                                      sizeof(jack_port_id_t));
-      if (written < sizeof(jack_port_id_t)) {
-        fprintf(stderr, "Could not schedule port connection.\n");
-      }
+    uint16_t len = strlen(port_name) + 1;
+    if (write_space >= sizeof(port_name_t) + len) {
+      jack_ringbuffer_write(queue, (const char*)&len, sizeof(uint16_t));
+      jack_ringbuffer_write(queue, port_name, len);
+    } else {
+      fprintf(stderr, "Could not schedule port connection.\n");
     }
   }
-  return written;
 }
 
 
 /**
  * Return the next port_id or NULL if empty.
  */
-jack_port_id_t next(jack_ringbuffer_t *queue) {
-  size_t read = 0;
-  jack_port_id_t id = 0;
-
+port_name_t *next(jack_ringbuffer_t *queue) {
   if (queue == NULL) {
     fprintf(stderr, "Queue memory problem.\n");
-  } else {
-    char buffer[sizeof(jack_port_id_t)];
-    read = jack_ringbuffer_read(queue, buffer, sizeof(jack_port_id_t));
-    if (read == sizeof(jack_port_id_t)) {
-      id = (jack_port_id_t) *buffer;
-    }
+    return NULL;
   }
-  return id;
+
+  uint16_t len;
+  if (jack_ringbuffer_read(queue,
+                           (char*)&len,
+                           sizeof(uint16_t)) != sizeof(uint16_t)) {
+    return NULL;
+  }
+
+  port_name_t *source = malloc(sizeof(port_name_t) + jack_port_name_size());
+  if (source == NULL) {
+    jack_ringbuffer_read_advance(queue, len);
+    fprintf(stderr, "Queue memory problem.\n");
+    return NULL;
+  }
+
+  source->len = len;
+  jack_ringbuffer_read(queue, source->name, len);
+  return source;
 }
 
 /**
@@ -56,13 +61,11 @@ jack_port_id_t next(jack_ringbuffer_t *queue) {
  */
 void handle_scheduled_connections(midi_broadcaster_t *const mm) {
   // Check if there are connections scheduled.
-  jack_port_id_t source;
+  port_name_t *source;
 
-  while ((source = next(mm->ports_to_connect)) != 0) {
+  while ((source = next(mm->ports_to_connect)) != NULL) {
     int result;
-    result = jack_connect(mm->client,
-                          jack_port_name(mm->ports[PORT_OUT]) ,
-                          jack_port_name(jack_port_by_id(mm->client, source)));
+    result = jack_connect(mm->client, jack_port_name(mm->ports[PORT_OUT]), source->name);
     switch(result) {
     case 0:
       // Fine.
@@ -75,6 +78,7 @@ void handle_scheduled_connections(midi_broadcaster_t *const mm) {
       break;
     }
   }
+  free(source);
 }
 
 
@@ -100,7 +104,7 @@ static void port_registration_callback(jack_port_id_t port_id, int is_registered
 
         // We can't call jack_connect here in the callback,
         // Schedule the connection for later.
-        push_back(mm->ports_to_connect, port_id);
+        push_back(mm->ports_to_connect, jack_port_name(source));
         sem_post(&mm->sem);
       }
     }
@@ -153,9 +157,9 @@ int jack_initialize(jack_client_t* client, const char* load_init)
   jack_port_set_alias(mm->ports[PORT_IN], "MIDI in");
   jack_port_set_alias(mm->ports[PORT_OUT], "MIDI out");
 
-  // Create the ringbuffer (single-producer/single-consumer) for
-  // scheduled port connections. It contains elements of type
-  // `jack_port_id_t`.
+  // Create the ringbuffer (single-producer/single-consumer) for scheduled port connections.
+  // It contains elements of type `port_name_t`.
+  const int queue_size = (jack_port_name_size() + sizeof(port_name_t)) * 64;
   mm->ports_to_connect = jack_ringbuffer_create(queue_size);
 
   // Set callbacks

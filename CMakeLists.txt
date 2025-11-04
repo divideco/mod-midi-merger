@@ -1,7 +1,7 @@
 # ISC License
 #
 # Copyright (c) 2018 Jakob Dübel
-# Copyright (c) 2019-2023 Filipe Coelho
+# Copyright (c) 2019-2025 Filipe Coelho
 #
 # Permission to use, copy, modify, and/or distribute this software for
 # any purpose with or without fee is hereby granted, provided that the
@@ -17,7 +17,7 @@
 # TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 # PERFORMANCE OF THIS SOFTWARE.
 
-cmake_minimum_required(VERSION 3.4.3)
+cmake_minimum_required(VERSION 3.4.3...3.31)
 
 # For versioning read https://semver.org/
 project(mod-midi-merger
